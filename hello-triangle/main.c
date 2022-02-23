@@ -1040,6 +1040,21 @@ main(int argc, char **argv) {
 
 
 
+// fully initialize Vulkan and it's default resources
+void
+_ren_vulkan_init() {
+	// TODO
+} // _ren_vulkan_init
+
+
+
+void
+_ren_vulkan_deinit() {
+	// TODO
+} // _ren_vulkan_deinit
+
+
+
 //! uses `heap_alloc`
 // for binary files
 static inline char*
@@ -1059,17 +1074,3 @@ read_entire_file_from_filename(const char* filename, size_t* const bytes_read) {
 	*bytes_read = filesize;
 	return filedata;
 } // read_entire_file_from_filename
-
-
-
-// fully initialize Vulkan and it's default resources
-void
-_ren_vulkan_init() {
-	// TODO
-} // _ren_vulkan_init
-
-
-void
-_ren_vulkan_deinit() {
-	// TODO
-} // _ren_vulkan_deinit
