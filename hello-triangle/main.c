@@ -13,49 +13,59 @@
 #include <stdlib.h>
 #include <string.h>
 
+
+
 #pragma comment(lib, "glfw3dll.lib")
 #pragma comment(lib, "vulkan-1.lib")
 
 
-#define WIDTH  720
-#define HEIGHT 480
 
-extern unsigned char frag_shader_spv[];
-const int frag_shader_spv_size = 500;
+#define WINDOW_SIZE_X  720
+#define WINDOW_SIZE_Y 480
 
-extern unsigned char vert_shader_spv[];
-const int vert_shader_spv_size = 1372;
+// heap memory allocator
+#define heap_alloc(num_elements, elem_size)		malloc(num_elements * elem_size)
+#define heap_alloc_zeroed(num_elements, elem_size)	calloc(num_elements, elem_size)
+#define heap_free(heap_allocd_ptr)			free(heap_allocd_ptr)
+
+#define ERROR_IF(condition, error_fmt, ...) if(condition) { printf("(!) error on line %i: " error_fmt, __LINE__, ##__VA_ARGS__); exit(-1); }
+
+
+
+typedef struct renderer_vulkan_data_s {
+	VkDevice device;
+} renderer_vulkan_data_t;
+renderer_vulkan_data_t renderer_vk_data;
+
+char* read_entire_file_from_filename(char* fullpath, size_t* const bytes_read);
+
+
 
 int
 main(int argc, char **argv) {
 	// Initialise GLFW.
 	// GLFW handles OS-specific interfaces such as creating and accessing a window and gathering input.
-	glfwInit();
+	const int glfw_init_res = glfwInit();
+	ERROR_IF(glfw_init_res != GLFW_TRUE, "GLFW failed to initialize");
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-	GLFWwindow *window = glfwCreateWindow(WIDTH, HEIGHT, "vulkan-hello-triangle", NULL, NULL);
-	if (!window) {
-		fprintf(stderr, "Error creating a GLFW window\n");
-		return 1;
-	}
+	GLFWwindow *window = glfwCreateWindow(WINDOW_SIZE_X, WINDOW_SIZE_Y, "vulkan-hello-triangle", NULL, NULL);
+	ERROR_IF(!window, "Error creating a GLFW window\n");
 
 	
 	// Retrieves the names of the Vulkan *instance* extensions that are necessary.
 	// If NULL is returned, then Vulkan is not usable (likely not installed).
 	unsigned int n_inst_exts = 0;
 	const char **req_inst_exts = glfwGetRequiredInstanceExtensions(&n_inst_exts);
-	if (!req_inst_exts) {
-		fprintf(stderr, "Could not find any Vulkan extensions\n");
-		return 2;
-	}
+	ERROR_IF(!req_inst_exts, "Could not find any Vulkan extensions\n");
 
 	// Create a Vulkan Instance.
 	// We provide Vulkan information about our program and the extensions available on this system,
 	// and it returns a unique Vulkan instance
 	VkApplicationInfo app_info = {0};
 	app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-	app_info.pApplicationName = "Hello Triangle";
+	app_info.pApplicationName = "vulkan-hello-triangle";
 	app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
 	app_info.pEngineName = "No Engine";
 	app_info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
@@ -69,78 +79,54 @@ main(int argc, char **argv) {
 
 	VkInstance instance;
 	VkResult res = vkCreateInstance(&create_info, NULL, &instance);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkCreateInstance() failed (%d)\n", res);
-		return 3;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkCreateInstance() failed (%d)\n", res);
 
 	// Determine the list of graphics hardware devices in this computer.
 	// In this example we just select the first device on the list.
 	int n_gpus = 0;
 	res = vkEnumeratePhysicalDevices(instance, &n_gpus, NULL);
-	if (n_gpus <= 0) {
-		fprintf(stderr, "No graphics hardware was found (physical device count = %d) (%d)\n", n_gpus, res);
-		return 4;
-	}
+	ERROR_IF(n_gpus <= 0, "No graphics hardware was found (physical device count = %d) (%d)\n", n_gpus, res);
 
 	n_gpus = 1;
 	VkPhysicalDevice gpu = {0};
 	res = vkEnumeratePhysicalDevices(instance, &n_gpus, &gpu);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkEnumeratePhysicalDevices() failed (%d)\n", res);
-		return 4;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkEnumeratePhysicalDevices() failed (%d)\n", res);
 
 	// Determine which queue family to use.
 	// In this case, we just look for the first one that can do graphics.
 	int n_queues = 0;
 	vkGetPhysicalDeviceQueueFamilyProperties(gpu, &n_queues, NULL);
-	if (n_queues <= 0) {
-		fprintf(stderr, "No queue families were found\n");
-		return 5;
-	}
+	ERROR_IF(n_queues <= 0, "No queue families were found\n");
 
-	VkQueueFamilyProperties *qfp = malloc(n_queues * sizeof(VkQueueFamilyProperties));
+	VkQueueFamilyProperties* qfp = heap_alloc(n_queues, sizeof(VkQueueFamilyProperties));
 	vkGetPhysicalDeviceQueueFamilyProperties(gpu, &n_queues, qfp);
 
 	int queue_index = -1;
-	for (int i = 0; i < n_queues; i++) {
-		if (qfp[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+	for(int i = 0; i < n_queues; i++) {
+		if(qfp[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
 			queue_index = i;
 			break;
 		}
 	}
-	free(qfp);
+	heap_free(qfp);
 
-	if (queue_index < 0) {
-		fprintf(stderr, "Could not find a queue family with graphics support\n");
-		return 5;
-	}
-
+	ERROR_IF(queue_index < 0, "Could not find a queue family with graphics support\n");
 	// Check that the chosen queue family supports presentation.
-	if (!glfwGetPhysicalDevicePresentationSupport(instance, gpu, queue_index)) {
-		fprintf(stderr, "The selected queue family does not support present mode\n");
-		return 6;
-	}
+	ERROR_IF(!glfwGetPhysicalDevicePresentationSupport(instance, gpu, queue_index), "The selected queue family does not support present mode\n");
 
 	// 7) Get all Vulkan *device* extensions (as opposed to instance extensions)
 	unsigned int n_dev_exts = 0;
 	res = vkEnumerateDeviceExtensionProperties(gpu, NULL, &n_dev_exts, NULL);
-	if (n_dev_exts <= 0 || res != VK_SUCCESS) {
-		fprintf(stderr, "Could not find any Vulkan device extensions (found %d, error %d)\n", n_dev_exts, res);
-		return 7;
-	}
+	ERROR_IF(n_dev_exts <= 0 || res != VK_SUCCESS, "Could not find any Vulkan device extensions (found %d, error %d)\n", n_dev_exts, res);
 
-	VkExtensionProperties *dev_ext_props = calloc(n_dev_exts, sizeof(VkExtensionProperties));
+	VkExtensionProperties *dev_ext_props = heap_alloc_zeroed(n_dev_exts, sizeof(VkExtensionProperties));
 	res = vkEnumerateDeviceExtensionProperties(gpu, NULL, &n_dev_exts, dev_ext_props);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkEnumerateDeviceExtensionProperties() failed (%d)\n", res);
-		return 7;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkEnumerateDeviceExtensionProperties() failed (%d)\n", res);
 
-	const char **dev_exts = calloc(n_dev_exts, sizeof(void*));
-	for (int i = 0; i < n_dev_exts; i++)
+	const char **dev_exts = heap_alloc_zeroed(n_dev_exts, sizeof(void*));
+	for(int i = 0; i < n_dev_exts; i++) {
 		dev_exts[i] = &dev_ext_props[i].extensionName[0];
+	}
 
 	// Create a virtual device for Vulkan.
 	// We pass in information regarding the hardware features we want to use as well as the set of queues,
@@ -161,10 +147,7 @@ main(int argc, char **argv) {
 
 	VkDevice device = {0};
 	res = vkCreateDevice(gpu, &device_info, NULL, &device);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkCreateDevice() failed (%d)\n", res);
-		return 8;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkCreateDevice() failed (%d)\n", res);
 
 	// Get implementation-specific function pointers.
 	// This lets us use parts of the Vulkan API that aren't generalised.
@@ -177,11 +160,11 @@ main(int argc, char **argv) {
 	PFN_vkGetPhysicalDeviceSurfaceFormatsKHR GetPhysicalDeviceSurfaceFormatsKHR
 		= (PFN_vkGetPhysicalDeviceSurfaceFormatsKHR)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceFormatsKHR");
 
-	PFN_vkCreateSwapchainKHR CreateSwapchainKHR		  = (PFN_vkCreateSwapchainKHR)vkGetDeviceProcAddr(device, "vkCreateSwapchainKHR");
-	PFN_vkDestroySwapchainKHR DestroySwapchainKHR	  = (PFN_vkDestroySwapchainKHR)vkGetDeviceProcAddr(device, "vkDestroySwapchainKHR");
-	PFN_vkGetSwapchainImagesKHR GetSwapchainImagesKHR = (PFN_vkGetSwapchainImagesKHR)vkGetDeviceProcAddr(device, "vkGetSwapchainImagesKHR");
-	PFN_vkAcquireNextImageKHR AcquireNextImageKHR	  = (PFN_vkAcquireNextImageKHR)vkGetDeviceProcAddr(device, "vkAcquireNextImageKHR");
-	PFN_vkQueuePresentKHR QueuePresentKHR			  = (PFN_vkQueuePresentKHR)vkGetDeviceProcAddr(device, "vkQueuePresentKHR");
+	PFN_vkCreateSwapchainKHR	CreateSwapchainKHR	= (PFN_vkCreateSwapchainKHR)	vkGetDeviceProcAddr(device, "vkCreateSwapchainKHR");
+	PFN_vkDestroySwapchainKHR	DestroySwapchainKHR	= (PFN_vkDestroySwapchainKHR)	vkGetDeviceProcAddr(device, "vkDestroySwapchainKHR");
+	PFN_vkGetSwapchainImagesKHR	GetSwapchainImagesKHR	= (PFN_vkGetSwapchainImagesKHR)	vkGetDeviceProcAddr(device, "vkGetSwapchainImagesKHR");
+	PFN_vkAcquireNextImageKHR	AcquireNextImageKHR	= (PFN_vkAcquireNextImageKHR)	vkGetDeviceProcAddr(device, "vkAcquireNextImageKHR");
+	PFN_vkQueuePresentKHR		QueuePresentKHR		= (PFN_vkQueuePresentKHR)	vkGetDeviceProcAddr(device, "vkQueuePresentKHR");
 
 	tally += GetPhysicalDeviceSurfaceCapabilitiesKHR != NULL;
 	tally += GetPhysicalDeviceSurfaceFormatsKHR != NULL;
@@ -191,60 +174,42 @@ main(int argc, char **argv) {
 	tally += AcquireNextImageKHR != NULL;
 	tally += QueuePresentKHR != NULL;
 
-	if (tally != total_fptrs) {
-		fprintf(stderr, "Error loading KHR extension methods (found %d/%d)\n", tally, total_fptrs);
-		return 9;
-	}
+	ERROR_IF(tally != total_fptrs, "Error loading KHR extension methods (found %d/%d)\n", tally, total_fptrs);
 
 	// Creating the window surface.
 	// In this example I use GLFW's equivalent API, which is platform-agnostic.
 	VkSurfaceKHR surface;
 	res = glfwCreateWindowSurface(instance, window, NULL, &surface);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "glfwCreateWindowSurface() failed (%d)\n", res);
-		return 10;
-	}
+	ERROR_IF(res != VK_SUCCESS, "glfwCreateWindowSurface() failed (%d)\n", res);
 	
 	// Determine the color format.
 	int n_color_formats = 0;
 	res = GetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &n_color_formats, NULL);
-	if (n_color_formats <= 0 || res != VK_SUCCESS) {
-		fprintf(stderr, "Could not find any color formats for the window surface\n");
-		return 11;
-	}
+	ERROR_IF(n_color_formats <= 0 || res != VK_SUCCESS, "Could not find any color formats for the window surface\n");
 
-	VkSurfaceFormatKHR *colors = malloc(n_color_formats * sizeof(VkSurfaceFormatKHR));
+	VkSurfaceFormatKHR* colors = heap_alloc(n_color_formats, sizeof(VkSurfaceFormatKHR));
 	res = GetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &n_color_formats, colors);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "GetPhysicalDeviceSurfaceFormatsKHR() failed (%d)\n", res);
-		return 11;
-	}
+	ERROR_IF(res != VK_SUCCESS, "GetPhysicalDeviceSurfaceFormatsKHR() failed (%d)\n", res);
 
 	VkSurfaceFormatKHR color_fmt = {0};
-	for (int i = 0; i < n_color_formats; i++) {
-		if (colors[i].format == VK_FORMAT_B8G8R8A8_UNORM) {
+	for(int i = 0; i < n_color_formats; i++) {
+		if(colors[i].format == VK_FORMAT_B8G8R8A8_UNORM) {
 			color_fmt = colors[i];
 			break;
 		}
 	}
-	free(colors);
+	heap_free(colors);
 
-	if (color_fmt.format == VK_FORMAT_UNDEFINED) {
-		fprintf(stderr, "The window surface does not define a B8G8R8A8 color format\n");
-		return 11;
-	}
+	ERROR_IF(color_fmt.format == VK_FORMAT_UNDEFINED, "The window surface does not define a B8G8R8A8 color format\n");
 
 	// Get information about the OS-specific surface.
 	VkSurfaceCapabilitiesKHR surf_caps;
 	res = GetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &surf_caps);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR() failed (%d)\n", res);
-		return 12;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR() failed (%d)\n", res);
 
-	if (surf_caps.currentExtent.width == 0xffffffff) {
-		surf_caps.currentExtent.width  = WIDTH;
-		surf_caps.currentExtent.height = HEIGHT;
+	if(surf_caps.currentExtent.width == 0xffffffff) {
+		surf_caps.currentExtent.width  = WINDOW_SIZE_X;
+		surf_caps.currentExtent.height = WINDOW_SIZE_Y;
 	}
 
 	// This would be where you might want to call vkGetPhysicalDeviceSurfacePresentModeKHR()
@@ -259,8 +224,8 @@ main(int argc, char **argv) {
 		VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR
 	};
 
-	for (int i = 0; i < sizeof(alpha_list) / sizeof(VkCompositeAlphaFlagBitsKHR); i++) {
-		if (surf_caps.supportedCompositeAlpha & alpha_list[i]) {
+	for(int i = 0; i < sizeof(alpha_list) / sizeof(VkCompositeAlphaFlagBitsKHR); i++) {
+		if(surf_caps.supportedCompositeAlpha & alpha_list[i]) {
 			alpha_fmt = alpha_list[i];
 			break;
 		}
@@ -270,7 +235,7 @@ main(int argc, char **argv) {
 	// This lets us maintain a rotating cast of framebuffers.
 	// In this example, we set it up for double-buffering.
 	int n_swap_images = surf_caps.minImageCount + 1;
-	if (surf_caps.maxImageCount > 0 && n_swap_images > surf_caps.maxImageCount)
+	if(surf_caps.maxImageCount > 0 && n_swap_images > surf_caps.maxImageCount)
 		n_swap_images = surf_caps.maxImageCount;
 
 	VkImageUsageFlags img_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
@@ -297,26 +262,17 @@ main(int argc, char **argv) {
 
 	VkSwapchainKHR swapchain;
 	res = CreateSwapchainKHR(device, &swap_info, NULL, &swapchain);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkCreateSwapchainKHR() failed (%d)\n", res);
-		return 14;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkCreateSwapchainKHR() failed (%d)\n", res);
 
 	// Get swapchain images.
 	// These are the endpoints for our framebuffers.
 	int n_images = 0;
 	res = GetSwapchainImagesKHR(device, swapchain, &n_images, NULL);
-	if (n_images <= 0 || res != VK_SUCCESS) {
-		fprintf(stderr, "Could not find any swapchain images\n");
-		return 15;
-	}
+	ERROR_IF(n_images <= 0 || res != VK_SUCCESS, "Could not find any swapchain images\n");
 
-	VkImage *images = calloc(n_images, sizeof(VkImage));
+	VkImage* images = heap_alloc_zeroed(n_images, sizeof(VkImage));
 	res = GetSwapchainImagesKHR(device, swapchain, &n_images, images);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkGetSwapchainImagesKHR() failed (%d)\n", res);
-		return 15;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkGetSwapchainImagesKHR() failed (%d)\n", res);
 	
 	// Create image views for the swapchain.
 	VkImageViewCreateInfo iv_info = {0};
@@ -337,14 +293,11 @@ main(int argc, char **argv) {
 	iv_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
 	iv_info.flags = 0;
 
-	VkImageView *img_views = calloc(n_images, sizeof(VkImageView));
-	for (int i = 0; i < n_images; i++) {
+	VkImageView* img_views = heap_alloc_zeroed(n_images, sizeof(VkImageView));
+	for(int i = 0; i < n_images; i++) {
 		iv_info.image = images[i];
 		res = vkCreateImageView(device, &iv_info, NULL, &img_views[i]);
-		if (res != VK_SUCCESS) {
-			fprintf(stderr, "vkCreateImageView() %d failed (%d)\n", i, res);
-			return 16;
-		}
+		ERROR_IF(res != VK_SUCCESS, "vkCreateImageView() %d failed (%d)\n", i, res);
 	}
 
 	// Create a command pool.
@@ -356,10 +309,7 @@ main(int argc, char **argv) {
 
 	VkCommandPool cmd_pool;
 	res = vkCreateCommandPool(device, &cpool_info, NULL, &cmd_pool);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkCreateCommandPool() failed (%d)\n", res);
-		return 17;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkCreateCommandPool() failed (%d)\n", res);
 
 	// Allocate command buffers - one for each image
 	VkCommandBufferAllocateInfo cbuf_alloc_info = {0};
@@ -368,12 +318,9 @@ main(int argc, char **argv) {
 	cbuf_alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 	cbuf_alloc_info.commandBufferCount = n_images;
 
-	VkCommandBuffer *cmd_buffers = calloc(n_images, sizeof(VkCommandBuffer));
+	VkCommandBuffer* cmd_buffers = heap_alloc_zeroed(n_images, sizeof(VkCommandBuffer));
 	res = vkAllocateCommandBuffers(device, &cbuf_alloc_info, cmd_buffers);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkAllocateCommandBuffers() failed (%d)\n", res);
-		return 18;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkAllocateCommandBuffers() failed (%d)\n", res);
 
 	// Select the depth format.
 	// Used in the creation of the depth stencil.
@@ -386,19 +333,16 @@ main(int argc, char **argv) {
 	};
 
 	VkFormat depth_fmt = VK_FORMAT_UNDEFINED;
-	for (int i = 0; i < sizeof(formats) / sizeof(VkFormat); i++) {
+	for(int i = 0; i < sizeof(formats) / sizeof(VkFormat); i++) {
 		VkFormatProperties cfg;
 		vkGetPhysicalDeviceFormatProperties(gpu, formats[i], &cfg);
-		if (cfg.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+		if(cfg.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
 			depth_fmt = formats[i];
 			break;
 		}
 	}
 
-	if (depth_fmt == VK_FORMAT_UNDEFINED) {
-		fprintf(stderr, "Could not find a suitable depth format\n");
-		return 19;
-	}
+	ERROR_IF(depth_fmt == VK_FORMAT_UNDEFINED, "Could not find a suitable depth format\n");
 
 	// Create depth stencil image.
 	VkImageCreateInfo dimg_info = {0};
@@ -418,10 +362,7 @@ main(int argc, char **argv) {
 
 	VkImage depth_img;
 	res = vkCreateImage(device, &dimg_info, NULL, &depth_img);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkCreateImage() for depth stencil failed (%d)\n", res);
-		return 20;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkCreateImage() for depth stencil failed (%d)\n", res);
 
 	// Allocate memory for the depth stencil.
 	VkPhysicalDeviceMemoryProperties gpu_mem;
@@ -431,19 +372,15 @@ main(int argc, char **argv) {
 	vkGetImageMemoryRequirements(device, depth_img, &mem_reqs);
 
 	int mem_type_idx = -1;
-	for (int i = 0; i < gpu_mem.memoryTypeCount; i++) {
-		if ((mem_reqs.memoryTypeBits & (1 << i)) &&
-			(gpu_mem.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
-		{
+	for(int i = 0; i < gpu_mem.memoryTypeCount; i++) {
+		if((mem_reqs.memoryTypeBits & (1 << i))
+			&& (gpu_mem.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
 			mem_type_idx = i;
 			break;
 		}
 	}
 
-	if (mem_type_idx < 0) {
-		fprintf(stderr, "Could not find a suitable type of graphics memory\n");
-		return 21;
-	}
+	ERROR_IF(mem_type_idx < 0, "Could not find a suitable type of graphics memory\n");
 
 	VkMemoryAllocateInfo alloc_info = {0};
 	alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -452,17 +389,11 @@ main(int argc, char **argv) {
 
 	VkDeviceMemory depth_mem;
 	res = vkAllocateMemory(device, &alloc_info, NULL, &depth_mem);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkAllocateMemory() for depth stencil failed (%d)\n", res);
-		return 21;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkAllocateMemory() for depth stencil failed (%d)\n", res);
 
 	// Bind the newly allocated memory to the depth stencil image.
 	res = vkBindImageMemory(device, depth_img, depth_mem, 0);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkBindImageMemory() for depth stencil failed (%d)\n", res);
-		return 22;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkBindImageMemory() for depth stencil failed (%d)\n", res);
 
 	// Create depth stencil view.
 	// This is passed to each framebuffer.
@@ -484,7 +415,7 @@ main(int argc, char **argv) {
 
 	VkImageView depth_view;
 	res = vkCreateImageView(device, &dview_info, NULL, &depth_view);
-	if (res != VK_SUCCESS) {
+	if(res != VK_SUCCESS) {
 		fprintf(stderr, "vkCreateImageView() for depth stencil failed (%d)\n", res);
 		return 23;
 	}
@@ -497,10 +428,10 @@ main(int argc, char **argv) {
 			.samples		= VK_SAMPLE_COUNT_1_BIT,
 			.loadOp			= VK_ATTACHMENT_LOAD_OP_CLEAR,
 			.storeOp		= VK_ATTACHMENT_STORE_OP_STORE,
-			.stencilLoadOp	= VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-			.initialLayout	= VK_IMAGE_LAYOUT_UNDEFINED,
-			.finalLayout	= VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+			.stencilLoadOp		= VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			.stencilStoreOp 	= VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			.initialLayout		= VK_IMAGE_LAYOUT_UNDEFINED,
+			.finalLayout		= VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
 		},
 		{ // Depth attachment
 			.flags			= 0,
@@ -508,10 +439,10 @@ main(int argc, char **argv) {
 			.samples		= VK_SAMPLE_COUNT_1_BIT,
 			.loadOp			= VK_ATTACHMENT_LOAD_OP_CLEAR,
 			.storeOp		= VK_ATTACHMENT_STORE_OP_STORE,
-			.stencilLoadOp	= VK_ATTACHMENT_LOAD_OP_CLEAR,
-			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-			.initialLayout	= VK_IMAGE_LAYOUT_UNDEFINED,
-			.finalLayout	= VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+			.stencilLoadOp		= VK_ATTACHMENT_LOAD_OP_CLEAR,
+			.stencilStoreOp		= VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			.initialLayout		= VK_IMAGE_LAYOUT_UNDEFINED,
+			.finalLayout		= VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
 		},
 	};
 
@@ -531,22 +462,22 @@ main(int argc, char **argv) {
 
 	VkSubpassDependency dependencies[] = {
 		{
-			.srcSubpass		 = VK_SUBPASS_EXTERNAL,
-			.dstSubpass		 = 0,
-			.srcStageMask	 = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-			.dstStageMask	 = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-			.srcAccessMask	 = VK_ACCESS_MEMORY_READ_BIT,
-			.dstAccessMask	 = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-			.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT
+			.srcSubpass		= VK_SUBPASS_EXTERNAL,
+			.dstSubpass		= 0,
+			.srcStageMask		= VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+			.dstStageMask		= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.srcAccessMask		= VK_ACCESS_MEMORY_READ_BIT,
+			.dstAccessMask		= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+			.dependencyFlags	= VK_DEPENDENCY_BY_REGION_BIT
 		},
 		{
-			.srcSubpass		 = 0,
-			.dstSubpass		 = VK_SUBPASS_EXTERNAL,
-			.srcStageMask	 = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-			.dstStageMask	 = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-			.srcAccessMask	 = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-			.dstAccessMask	 = VK_ACCESS_MEMORY_READ_BIT,
-			.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT
+			.srcSubpass		= 0,
+			.dstSubpass		= VK_SUBPASS_EXTERNAL,
+			.srcStageMask		= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.dstStageMask		= VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+			.srcAccessMask		= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+			.dstAccessMask		= VK_ACCESS_MEMORY_READ_BIT,
+			.dependencyFlags	= VK_DEPENDENCY_BY_REGION_BIT
 		}
 	};
 
@@ -561,7 +492,7 @@ main(int argc, char **argv) {
 
 	VkRenderPass renderpass;
 	res = vkCreateRenderPass(device, &pass_info, NULL, &renderpass);
-	if (res != VK_SUCCESS) {
+	if(res != VK_SUCCESS) {
 		fprintf(stderr, "vkCreateRenderPass() failed (%d)\n", res);
 		return 24;
 	}
@@ -579,14 +510,11 @@ main(int argc, char **argv) {
 	fb_info.height = surf_caps.currentExtent.height;
 	fb_info.layers = 1;
 
-	VkFramebuffer *fbuffers = calloc(n_images, sizeof(VkFramebuffer));
-	for (int i = 0; i < n_images; i++) {
+	VkFramebuffer* fbuffers = heap_alloc_zeroed(n_images, sizeof(VkFramebuffer));
+	for(int i = 0; i < n_images; i++) {
 		fb_views[0] = img_views[i];
 		res = vkCreateFramebuffer(device, &fb_info, NULL, &fbuffers[i]);
-		if (res != VK_SUCCESS) {
-			fprintf(stderr, "vkCreateFramebuffer() %d failed (%d)\n", i, res);
-			return 25;
-		}
+		ERROR_IF(res != VK_SUCCESS, "vkCreateFramebuffer() %d failed (%d)\n", i, res);
 	}
 
 	// Create semaphores for synchronising draw commands and image presentation.
@@ -594,9 +522,8 @@ main(int argc, char **argv) {
 	bake_sema.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
 	VkSemaphore sema_present, sema_render;
-	if (vkCreateSemaphore(device, &bake_sema, NULL, &sema_present) != VK_SUCCESS ||
-		vkCreateSemaphore(device, &bake_sema, NULL, &sema_render) != VK_SUCCESS)
-	{
+	if(vkCreateSemaphore(device, &bake_sema, NULL, &sema_present) != VK_SUCCESS ||
+		vkCreateSemaphore(device, &bake_sema, NULL, &sema_render) != VK_SUCCESS) {
 		fprintf(stderr, "Failed to create Vulkan semaphores\n");
 		return 26;
 	}
@@ -606,13 +533,10 @@ main(int argc, char **argv) {
 	fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 	fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-	VkFence *fences = calloc(n_images, sizeof(VkFence));
-	for (int i = 0; i < n_images; i++) {
+	VkFence* fences = heap_alloc_zeroed(n_images, sizeof(VkFence));
+	for(int i = 0; i < n_images; i++) {
 		res = vkCreateFence(device, &fence_info, NULL, &fences[i]);
-		if (res != VK_SUCCESS) {
-			fprintf(stderr, "vkCreateFence() failed (%d)\n", res);
-			return 27;
-		}
+		ERROR_IF(res != VK_SUCCESS, "vkCreateFence() failed (%d)\n", res);
 	}
 
 	// Prepare the triangle!
@@ -655,14 +579,14 @@ main(int argc, char **argv) {
 		{(void*)mvp,	  48 * sizeof(float), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_NULL_HANDLE, VK_NULL_HANDLE}
 	};
 
-	for (int i = 0; i < 3; i++) {
+	for(int i = 0; i < 3; i++) {
 		VkBufferCreateInfo buf_info = {0};
 		buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 		buf_info.size = data[i].size;
 		buf_info.usage = data[i].usage;
 
 		res = vkCreateBuffer(device, &buf_info, NULL, &data[i].buffer);
-		if (res != VK_SUCCESS) {
+		if(res != VK_SUCCESS) {
 			fprintf(stderr, "vkCreateBuffer() %d failed (%d)\n", i, res);
 			return 28;
 		}
@@ -672,45 +596,32 @@ main(int argc, char **argv) {
 
 		unsigned int flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 		int type_idx = -1;
-		for (int j = 0; j < gpu_mem.memoryTypeCount; j++) {
-			if ((mem_reqs.memoryTypeBits & (1 << j)) &&
-				(gpu_mem.memoryTypes[j].propertyFlags & flags) == flags)
-			{
+		for(int j = 0; j < gpu_mem.memoryTypeCount; j++) {
+			if((mem_reqs.memoryTypeBits & (1 << j)) &&
+				(gpu_mem.memoryTypes[j].propertyFlags & flags) == flags) {
 				mem_type_idx = j;
 				break;
 			}
 		}
 
-		if (mem_type_idx < 0) {
-			fprintf(stderr, "Could not find an appropriate memory type (%d)\n", i);
-			return 28;
-		}
+		ERROR_IF(mem_type_idx < 0, "Could not find an appropriate memory type (%d)\n", i);
 
 		alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 		alloc_info.allocationSize = mem_reqs.size;
 		alloc_info.memoryTypeIndex = mem_type_idx;
 
 		res = vkAllocateMemory(device, &alloc_info, NULL, &data[i].memory);
-		if (res != VK_SUCCESS) {
-			fprintf(stderr, "vkAllocateMemory() %d failed (%d)\n", i, res);
-			return 28;
-		}
+		ERROR_IF(res != VK_SUCCESS, "vkAllocateMemory() %d failed (%d)\n", i, res);
 
 		void *buf;
 		res = vkMapMemory(device, data[i].memory, 0, alloc_info.allocationSize, 0, &buf);
-		if (res != VK_SUCCESS) {
-			fprintf(stderr, "vkMapMemory() %d failed (%d)\n", i, res);
-			return 28;
-		}
+		ERROR_IF(res != VK_SUCCESS, "vkMapMemory() %d failed (%d)\n", i, res);
 
 		memcpy(buf, data[i].bytes, data[i].size);
 		vkUnmapMemory(device, data[i].memory);
 
 		res = vkBindBufferMemory(device, data[i].buffer, data[i].memory, 0);
-		if (res != VK_SUCCESS) {
-			fprintf(stderr, "vkBindBufferMemory() %d failed (%d)\n", i, res);
-			return 28;
-		}
+		ERROR_IF(res != VK_SUCCESS, "vkBindBufferMemory() %d failed (%d)\n", i, res);
 	}
 
 	// Describe the MVP to a uniform descriptor.
@@ -732,10 +643,7 @@ main(int argc, char **argv) {
 
 	VkDescriptorSetLayout ds_layout;
 	res = vkCreateDescriptorSetLayout(device, &ds_info, NULL, &ds_layout);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkCreateDescriptorSetLayout() failed (%d)\n", res);
-		return 30;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkCreateDescriptorSetLayout() failed (%d)\n", res);
 
 	// Create pipeline layout.
 	VkPipelineLayoutCreateInfo pl_info = {0};
@@ -745,33 +653,30 @@ main(int argc, char **argv) {
 
 	VkPipelineLayout pl_layout;
 	res = vkCreatePipelineLayout(device, &pl_info, NULL, &pl_layout);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkCreatePipelineLayout() failed (%d)\n", res);
-		return 31;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkCreatePipelineLayout() failed (%d)\n", res);
 
-	// Prepare shaders.
+	// load shader file data
+	size_t vert_shader_spv_size = 0;
+	char* vert_shader_spv = read_entire_file_from_filename("./shader.vert.spv", &vert_shader_spv_size);
+	size_t frag_shader_spv_size = 0;
+	char* frag_shader_spv = read_entire_file_from_filename("./shader.frag.spv", &frag_shader_spv_size);
+
+	// prepare shaders
 	VkShaderModuleCreateInfo mod_info = {0};
 	mod_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 	mod_info.codeSize = frag_shader_spv_size;
-	mod_info.pCode = (unsigned int *)frag_shader_spv;
+	mod_info.pCode = (unsigned int*)frag_shader_spv;
 
 	VkShaderModule frag_shader;
 	res = vkCreateShaderModule(device, &mod_info, NULL, &frag_shader);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkCreateShaderModule() for fragment shader failed (%d)\n", res);
-		return 32;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkCreateShaderModule() for fragment shader failed (%d)\n", res);
 
 	mod_info.codeSize = vert_shader_spv_size;
 	mod_info.pCode = (unsigned int *)vert_shader_spv;
 
 	VkShaderModule vert_shader;
 	res = vkCreateShaderModule(device, &mod_info, NULL, &vert_shader);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkCreateShaderModule() for vertex shader failed (%d)\n", res);
-		return 32;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkCreateShaderModule() for vertex shader failed (%d)\n", res);
 
 	// Create graphics pipeline.
 	VkPipelineInputAssemblyStateCreateInfo asm_info = {0};
@@ -880,10 +785,7 @@ main(int argc, char **argv) {
 
 	VkPipeline pipeline;
 	res = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipe_info, NULL, &pipeline);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkCreateGraphicsPipelines() failed (%d)\n", res);
-		return 33;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkCreateGraphicsPipelines() failed (%d)\n", res);
 
 	// Destroy shader modules (now that they have already been incorporated into the pipeline).
 	vkDestroyShaderModule(device, vert_shader, NULL);
@@ -902,10 +804,7 @@ main(int argc, char **argv) {
 
 	VkDescriptorPool dpool;
 	res = vkCreateDescriptorPool(device, &dpool_info, NULL, &dpool);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkCreateDescriptorPool() failed (%d)\n", res);
-		return 35;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkCreateDescriptorPool() failed (%d)\n", res);
 
 	// Allocate a descriptor set.
 	// Descriptor sets let us pass additional data into our shaders.
@@ -917,10 +816,7 @@ main(int argc, char **argv) {
 
 	VkDescriptorSet desc_set;
 	res = vkAllocateDescriptorSets(device, &ds_alloc_info, &desc_set);
-	if (res != VK_SUCCESS) {
-		fprintf(stderr, "vkAllocateDescriptorSets() failed (%d)\n", res);
-		return 36;
-	}
+	ERROR_IF(res != VK_SUCCESS, "vkAllocateDescriptorSets() failed (%d)\n", res);
 
 	// Set up the descriptor set.
 	VkWriteDescriptorSet write_info = {0};
@@ -960,12 +856,9 @@ main(int argc, char **argv) {
 	viewport.minDepth = 0.0f;
 	viewport.maxDepth = 1.0f;
 
-	for (int i = 0; i < n_images; i++) {
+	for(int i = 0; i < n_images; i++) {
 		res = vkBeginCommandBuffer(cmd_buffers[i], &cbuf_info);
-		if (res != VK_SUCCESS) {
-			fprintf(stderr, "vkBeginCommandBuffer() %d failed (%d)\n", i, res);
-			return 38;
-		}
+		ERROR_IF(res != VK_SUCCESS, "vkBeginCommandBuffer() %d failed (%d)\n", i, res);
 
 		rp_info.framebuffer = fbuffers[i];
 		vkCmdBeginRenderPass(cmd_buffers[i], &rp_info, VK_SUBPASS_CONTENTS_INLINE);
@@ -985,10 +878,7 @@ main(int argc, char **argv) {
 
 		vkCmdEndRenderPass(cmd_buffers[i]);
 		res = vkEndCommandBuffer(cmd_buffers[i]);
-		if (res != VK_SUCCESS) {
-			fprintf(stderr, "vkEndCommandBuffer() %d failed (%d)\n", i, res);
-			return 38;
-		}
+		ERROR_IF(res != VK_SUCCESS, "vkEndCommandBuffer() %d failed (%d)\n", i, res);
 	}
 
 	// Prepare main loop.
@@ -1013,47 +903,37 @@ main(int argc, char **argv) {
 	VkQueue queue;
 	vkGetDeviceQueue(device, queue_index, 0, &queue);
 
+	unsigned long long frame_num = 0;
+
 	// Main loop.
 	unsigned long long max64 = -1;
-	while (!glfwWindowShouldClose(window)) {
-		glfwPollEvents();
+	while(!glfwWindowShouldClose(window)) {
+		frame_num++;
+		glfwPollEvents(); // read input from GLFW
+
+		// printf("frame %i\n", frame_num);
 
 		int idx;
 		res = AcquireNextImageKHR(device, swapchain, max64, sema_present, NULL, &idx);
-		if (res != VK_SUCCESS) {
-			fprintf(stderr, "vkAcquireNextImageKHR() failed (%d)\n", res);
-			return 40;
-		}
+		ERROR_IF(res != VK_SUCCESS, "vkAcquireNextImageKHR() failed (%d)\n", res);
 
 		res = vkWaitForFences(device, 1, &fences[idx], VK_TRUE, max64);
-		if (res != VK_SUCCESS) {
-			fprintf(stderr, "vkWaitForFences() failed (%d)\n", res);
-			return 40;
-		}
+		ERROR_IF(res != VK_SUCCESS, "vkWaitForFences() failed (%d)\n", res);
 
 		res = vkResetFences(device, 1, &fences[idx]);
-		if (res != VK_SUCCESS) {
-			fprintf(stderr, "vkResetFences() failed (%d)\n", res);
-			return 40;
-		}
+		ERROR_IF(res != VK_SUCCESS, "vkResetFences() failed (%d)\n", res);
 
 		submit_info.pCommandBuffers = &cmd_buffers[idx];
 		res = vkQueueSubmit(queue, 1, &submit_info, fences[idx]);
-		if (res != VK_SUCCESS) {
-			fprintf(stderr, "vkQueueSubmit() failed (%d)\n", res);
-			return 40;
-		}
+		ERROR_IF(res != VK_SUCCESS, "vkQueueSubmit() failed (%d)\n", res);
 
 		present_info.pImageIndices = &idx;
 		res = QueuePresentKHR(queue, &present_info);
-		if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) {
-			fprintf(stderr, "vkQueuePresentKHR() failed (%d)\n", res);
-			return 40;
-		}
+		ERROR_IF(res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR, "vkQueuePresentKHR() failed (%d)\n", res);
 	}
 
 	// Clean-up.
-	for (int i = 0; i < 3; i++) {
+	for(int i = 0; i < 3; i++) {
 		vkDestroyBuffer(device, data[i].buffer, NULL);
 		vkFreeMemory(device, data[i].memory, NULL);
 	}
@@ -1065,12 +945,12 @@ main(int argc, char **argv) {
 	vkDestroySemaphore(device, sema_present, NULL);
 	vkDestroySemaphore(device, sema_render, NULL);
 
-	for (int i = 0; i < n_images; i++) {
+	for(int i = 0; i < n_images; i++) {
 		vkDestroyFence(device, fences[i], NULL);
 	}
 	free(fences);
 
-	for (int i = 0; i < n_images; i++) {
+	for(int i = 0; i < n_images; i++) {
 		vkDestroyFramebuffer(device, fbuffers[i], NULL);
 	}
 	free(fbuffers);
@@ -1086,7 +966,7 @@ main(int argc, char **argv) {
 	vkDestroyPipeline(device, pipeline, NULL);
 	vkDestroyRenderPass(device, renderpass, NULL);
 
-	for (int i = 0; i < n_images; i++) {
+	for(int i = 0; i < n_images; i++) {
 		vkDestroyImageView(device, img_views[i], NULL);
 	}
 	free(img_views);
@@ -1099,137 +979,33 @@ main(int argc, char **argv) {
 	vkDestroySurfaceKHR(instance, surface, NULL);
 	vkDestroyInstance(instance, NULL);
 
-	free((void*)dev_exts); // TODO
+	free((void*)dev_exts);
 	free(dev_ext_props);
 
 	glfwDestroyWindow(window);
 	glfwTerminate();
 
 	return 0;
+} // main
+
+
+
+//! uses `heap_alloc`
+// for binary files
+char*
+read_entire_file_from_filename(const char* filename, size_t* const bytes_read) {
+	printf("opening file `%s`...\n", filename);
+	FILE* handle = fopen(filename, "rb");
+	ERROR_IF(handle == (void*)0, "couldn't load file `%s`\n", filename);
+
+	fseek(handle, 0L, SEEK_END);
+	const size_t filesize = ftell(handle);
+	// printf("filesize = %i\n", filesize);
+	fseek(handle, 0, SEEK_SET);
+	char* filedata = heap_alloc(filesize, 1);
+	fread(filedata, 1, filesize, handle);
+	fclose(handle);
+
+	*bytes_read = filesize;
+	return filedata;
 }
-
-// Fragment Shader (https://github.com/SaschaWillems/Vulkan/data/shaders/triangle/triangle.frag)
-/*
-#version 450
-
-layout (location = 0) in vec3 inColor;
-
-layout (location = 0) out vec4 outFragColor;
-
-void main() 
-{
-	outFragColor = vec4(inColor, 1.0);
-}
-*/
-unsigned char frag_shader_spv[] = {
-	0x03,0x02,0x23,0x07,0x00,0x00,0x01,0x00,0x07,0x00,0x08,0x00,0x13,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x11,0x00,0x02,0x00,
-	0x01,0x00,0x00,0x00,0x0b,0x00,0x06,0x00,0x01,0x00,0x00,0x00,0x47,0x4c,0x53,0x4c,0x2e,0x73,0x74,0x64,0x2e,0x34,0x35,0x30,
-	0x00,0x00,0x00,0x00,0x0e,0x00,0x03,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x0f,0x00,0x07,0x00,0x04,0x00,0x00,0x00,
-	0x04,0x00,0x00,0x00,0x6d,0x61,0x69,0x6e,0x00,0x00,0x00,0x00,0x09,0x00,0x00,0x00,0x0c,0x00,0x00,0x00,0x10,0x00,0x03,0x00,
-	0x04,0x00,0x00,0x00,0x07,0x00,0x00,0x00,0x03,0x00,0x03,0x00,0x02,0x00,0x00,0x00,0xc2,0x01,0x00,0x00,0x05,0x00,0x04,0x00,
-	0x04,0x00,0x00,0x00,0x6d,0x61,0x69,0x6e,0x00,0x00,0x00,0x00,0x05,0x00,0x06,0x00,0x09,0x00,0x00,0x00,0x6f,0x75,0x74,0x46,
-	0x72,0x61,0x67,0x43,0x6f,0x6c,0x6f,0x72,0x00,0x00,0x00,0x00,0x05,0x00,0x04,0x00,0x0c,0x00,0x00,0x00,0x69,0x6e,0x43,0x6f,
-	0x6c,0x6f,0x72,0x00,0x47,0x00,0x04,0x00,0x09,0x00,0x00,0x00,0x1e,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x47,0x00,0x04,0x00,
-	0x0c,0x00,0x00,0x00,0x1e,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x13,0x00,0x02,0x00,0x02,0x00,0x00,0x00,0x21,0x00,0x03,0x00,
-	0x03,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x16,0x00,0x03,0x00,0x06,0x00,0x00,0x00,0x20,0x00,0x00,0x00,0x17,0x00,0x04,0x00,
-	0x07,0x00,0x00,0x00,0x06,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x20,0x00,0x04,0x00,0x08,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
-	0x07,0x00,0x00,0x00,0x3b,0x00,0x04,0x00,0x08,0x00,0x00,0x00,0x09,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x17,0x00,0x04,0x00,
-	0x0a,0x00,0x00,0x00,0x06,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x20,0x00,0x04,0x00,0x0b,0x00,0x00,0x00,0x01,0x00,0x00,0x00,
-	0x0a,0x00,0x00,0x00,0x3b,0x00,0x04,0x00,0x0b,0x00,0x00,0x00,0x0c,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x2b,0x00,0x04,0x00,
-	0x06,0x00,0x00,0x00,0x0e,0x00,0x00,0x00,0x00,0x00,0x80,0x3f,0x36,0x00,0x05,0x00,0x02,0x00,0x00,0x00,0x04,0x00,0x00,0x00,
-	0x00,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0xf8,0x00,0x02,0x00,0x05,0x00,0x00,0x00,0x3d,0x00,0x04,0x00,0x0a,0x00,0x00,0x00,
-	0x0d,0x00,0x00,0x00,0x0c,0x00,0x00,0x00,0x51,0x00,0x05,0x00,0x06,0x00,0x00,0x00,0x0f,0x00,0x00,0x00,0x0d,0x00,0x00,0x00,
-	0x00,0x00,0x00,0x00,0x51,0x00,0x05,0x00,0x06,0x00,0x00,0x00,0x10,0x00,0x00,0x00,0x0d,0x00,0x00,0x00,0x01,0x00,0x00,0x00,
-	0x51,0x00,0x05,0x00,0x06,0x00,0x00,0x00,0x11,0x00,0x00,0x00,0x0d,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x50,0x00,0x07,0x00,
-	0x07,0x00,0x00,0x00,0x12,0x00,0x00,0x00,0x0f,0x00,0x00,0x00,0x10,0x00,0x00,0x00,0x11,0x00,0x00,0x00,0x0e,0x00,0x00,0x00,
-	0x3e,0x00,0x03,0x00,0x09,0x00,0x00,0x00,0x12,0x00,0x00,0x00,0xfd,0x00,0x01,0x00,0x38,0x00,0x01,0x00,
-};
-
-// Vertex Shader (https://github.com/SaschaWillems/Vulkan/data/shaders/triangle/triangle.vert)
-/*
-#version 450
-
-layout (location = 0) in vec3 inPos;
-layout (location = 1) in vec3 inColor;
-
-layout (binding = 0) uniform UBO 
-{
-	mat4 projectionMatrix;
-	mat4 modelMatrix;
-	mat4 viewMatrix;
-} ubo;
-
-layout (location = 0) out vec3 outColor;
-
-out gl_PerVertex 
-{
-	vec4 gl_Position;	
-};
-
-
-void main() 
-{
-	outColor = inColor;
-	gl_Position = ubo.projectionMatrix * ubo.viewMatrix * ubo.modelMatrix * vec4(inPos.xyz, 1.0);
-}
-*/
-unsigned char vert_shader_spv[] = {
-	0x03,0x02,0x23,0x07,0x00,0x00,0x01,0x00,0x07,0x00,0x08,0x00,0x2c,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x11,0x00,0x02,0x00,
-	0x01,0x00,0x00,0x00,0x0b,0x00,0x06,0x00,0x01,0x00,0x00,0x00,0x47,0x4c,0x53,0x4c,0x2e,0x73,0x74,0x64,0x2e,0x34,0x35,0x30,
-	0x00,0x00,0x00,0x00,0x0e,0x00,0x03,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x0f,0x00,0x09,0x00,0x00,0x00,0x00,0x00,
-	0x04,0x00,0x00,0x00,0x6d,0x61,0x69,0x6e,0x00,0x00,0x00,0x00,0x09,0x00,0x00,0x00,0x0b,0x00,0x00,0x00,0x10,0x00,0x00,0x00,
-	0x22,0x00,0x00,0x00,0x03,0x00,0x03,0x00,0x02,0x00,0x00,0x00,0xc2,0x01,0x00,0x00,0x05,0x00,0x04,0x00,0x04,0x00,0x00,0x00,
-	0x6d,0x61,0x69,0x6e,0x00,0x00,0x00,0x00,0x05,0x00,0x05,0x00,0x09,0x00,0x00,0x00,0x6f,0x75,0x74,0x43,0x6f,0x6c,0x6f,0x72,
-	0x00,0x00,0x00,0x00,0x05,0x00,0x04,0x00,0x0b,0x00,0x00,0x00,0x69,0x6e,0x43,0x6f,0x6c,0x6f,0x72,0x00,0x05,0x00,0x06,0x00,
-	0x0e,0x00,0x00,0x00,0x67,0x6c,0x5f,0x50,0x65,0x72,0x56,0x65,0x72,0x74,0x65,0x78,0x00,0x00,0x00,0x00,0x06,0x00,0x06,0x00,
-	0x0e,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x67,0x6c,0x5f,0x50,0x6f,0x73,0x69,0x74,0x69,0x6f,0x6e,0x00,0x05,0x00,0x03,0x00,
-	0x10,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x05,0x00,0x03,0x00,0x14,0x00,0x00,0x00,0x55,0x42,0x4f,0x00,0x06,0x00,0x08,0x00,
-	0x14,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x70,0x72,0x6f,0x6a,0x65,0x63,0x74,0x69,0x6f,0x6e,0x4d,0x61,0x74,0x72,0x69,0x78,
-	0x00,0x00,0x00,0x00,0x06,0x00,0x06,0x00,0x14,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x6d,0x6f,0x64,0x65,0x6c,0x4d,0x61,0x74,
-	0x72,0x69,0x78,0x00,0x06,0x00,0x06,0x00,0x14,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x76,0x69,0x65,0x77,0x4d,0x61,0x74,0x72,
-	0x69,0x78,0x00,0x00,0x05,0x00,0x03,0x00,0x16,0x00,0x00,0x00,0x75,0x62,0x6f,0x00,0x05,0x00,0x04,0x00,0x22,0x00,0x00,0x00,
-	0x69,0x6e,0x50,0x6f,0x73,0x00,0x00,0x00,0x47,0x00,0x04,0x00,0x09,0x00,0x00,0x00,0x1e,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-	0x47,0x00,0x04,0x00,0x0b,0x00,0x00,0x00,0x1e,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x48,0x00,0x05,0x00,0x0e,0x00,0x00,0x00,
-	0x00,0x00,0x00,0x00,0x0b,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x47,0x00,0x03,0x00,0x0e,0x00,0x00,0x00,0x02,0x00,0x00,0x00,
-	0x48,0x00,0x04,0x00,0x14,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x05,0x00,0x00,0x00,0x48,0x00,0x05,0x00,0x14,0x00,0x00,0x00,
-	0x00,0x00,0x00,0x00,0x23,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x48,0x00,0x05,0x00,0x14,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-	0x07,0x00,0x00,0x00,0x10,0x00,0x00,0x00,0x48,0x00,0x04,0x00,0x14,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x05,0x00,0x00,0x00,
-	0x48,0x00,0x05,0x00,0x14,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x23,0x00,0x00,0x00,0x40,0x00,0x00,0x00,0x48,0x00,0x05,0x00,
-	0x14,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x07,0x00,0x00,0x00,0x10,0x00,0x00,0x00,0x48,0x00,0x04,0x00,0x14,0x00,0x00,0x00,
-	0x02,0x00,0x00,0x00,0x05,0x00,0x00,0x00,0x48,0x00,0x05,0x00,0x14,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x23,0x00,0x00,0x00,
-	0x80,0x00,0x00,0x00,0x48,0x00,0x05,0x00,0x14,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x07,0x00,0x00,0x00,0x10,0x00,0x00,0x00,
-	0x47,0x00,0x03,0x00,0x14,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x47,0x00,0x04,0x00,0x16,0x00,0x00,0x00,0x22,0x00,0x00,0x00,
-	0x00,0x00,0x00,0x00,0x47,0x00,0x04,0x00,0x16,0x00,0x00,0x00,0x21,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x47,0x00,0x04,0x00,
-	0x22,0x00,0x00,0x00,0x1e,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x13,0x00,0x02,0x00,0x02,0x00,0x00,0x00,0x21,0x00,0x03,0x00,
-	0x03,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x16,0x00,0x03,0x00,0x06,0x00,0x00,0x00,0x20,0x00,0x00,0x00,0x17,0x00,0x04,0x00,
-	0x07,0x00,0x00,0x00,0x06,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x20,0x00,0x04,0x00,0x08,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
-	0x07,0x00,0x00,0x00,0x3b,0x00,0x04,0x00,0x08,0x00,0x00,0x00,0x09,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x20,0x00,0x04,0x00,
-	0x0a,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x07,0x00,0x00,0x00,0x3b,0x00,0x04,0x00,0x0a,0x00,0x00,0x00,0x0b,0x00,0x00,0x00,
-	0x01,0x00,0x00,0x00,0x17,0x00,0x04,0x00,0x0d,0x00,0x00,0x00,0x06,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x1e,0x00,0x03,0x00,
-	0x0e,0x00,0x00,0x00,0x0d,0x00,0x00,0x00,0x20,0x00,0x04,0x00,0x0f,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x0e,0x00,0x00,0x00,
-	0x3b,0x00,0x04,0x00,0x0f,0x00,0x00,0x00,0x10,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x15,0x00,0x04,0x00,0x11,0x00,0x00,0x00,
-	0x20,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x2b,0x00,0x04,0x00,0x11,0x00,0x00,0x00,0x12,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-	0x18,0x00,0x04,0x00,0x13,0x00,0x00,0x00,0x0d,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x1e,0x00,0x05,0x00,0x14,0x00,0x00,0x00,
-	0x13,0x00,0x00,0x00,0x13,0x00,0x00,0x00,0x13,0x00,0x00,0x00,0x20,0x00,0x04,0x00,0x15,0x00,0x00,0x00,0x02,0x00,0x00,0x00,
-	0x14,0x00,0x00,0x00,0x3b,0x00,0x04,0x00,0x15,0x00,0x00,0x00,0x16,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x20,0x00,0x04,0x00,
-	0x17,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x13,0x00,0x00,0x00,0x2b,0x00,0x04,0x00,0x11,0x00,0x00,0x00,0x1a,0x00,0x00,0x00,
-	0x02,0x00,0x00,0x00,0x2b,0x00,0x04,0x00,0x11,0x00,0x00,0x00,0x1e,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x3b,0x00,0x04,0x00,
-	0x0a,0x00,0x00,0x00,0x22,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x2b,0x00,0x04,0x00,0x06,0x00,0x00,0x00,0x24,0x00,0x00,0x00,
-	0x00,0x00,0x80,0x3f,0x20,0x00,0x04,0x00,0x2a,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x0d,0x00,0x00,0x00,0x36,0x00,0x05,0x00,
-	0x02,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0xf8,0x00,0x02,0x00,0x05,0x00,0x00,0x00,
-	0x3d,0x00,0x04,0x00,0x07,0x00,0x00,0x00,0x0c,0x00,0x00,0x00,0x0b,0x00,0x00,0x00,0x3e,0x00,0x03,0x00,0x09,0x00,0x00,0x00,
-	0x0c,0x00,0x00,0x00,0x41,0x00,0x05,0x00,0x17,0x00,0x00,0x00,0x18,0x00,0x00,0x00,0x16,0x00,0x00,0x00,0x12,0x00,0x00,0x00,
-	0x3d,0x00,0x04,0x00,0x13,0x00,0x00,0x00,0x19,0x00,0x00,0x00,0x18,0x00,0x00,0x00,0x41,0x00,0x05,0x00,0x17,0x00,0x00,0x00,
-	0x1b,0x00,0x00,0x00,0x16,0x00,0x00,0x00,0x1a,0x00,0x00,0x00,0x3d,0x00,0x04,0x00,0x13,0x00,0x00,0x00,0x1c,0x00,0x00,0x00,
-	0x1b,0x00,0x00,0x00,0x92,0x00,0x05,0x00,0x13,0x00,0x00,0x00,0x1d,0x00,0x00,0x00,0x19,0x00,0x00,0x00,0x1c,0x00,0x00,0x00,
-	0x41,0x00,0x05,0x00,0x17,0x00,0x00,0x00,0x1f,0x00,0x00,0x00,0x16,0x00,0x00,0x00,0x1e,0x00,0x00,0x00,0x3d,0x00,0x04,0x00,
-	0x13,0x00,0x00,0x00,0x20,0x00,0x00,0x00,0x1f,0x00,0x00,0x00,0x92,0x00,0x05,0x00,0x13,0x00,0x00,0x00,0x21,0x00,0x00,0x00,
-	0x1d,0x00,0x00,0x00,0x20,0x00,0x00,0x00,0x3d,0x00,0x04,0x00,0x07,0x00,0x00,0x00,0x23,0x00,0x00,0x00,0x22,0x00,0x00,0x00,
-	0x51,0x00,0x05,0x00,0x06,0x00,0x00,0x00,0x25,0x00,0x00,0x00,0x23,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x51,0x00,0x05,0x00,
-	0x06,0x00,0x00,0x00,0x26,0x00,0x00,0x00,0x23,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x51,0x00,0x05,0x00,0x06,0x00,0x00,0x00,
-	0x27,0x00,0x00,0x00,0x23,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x50,0x00,0x07,0x00,0x0d,0x00,0x00,0x00,0x28,0x00,0x00,0x00,
-	0x25,0x00,0x00,0x00,0x26,0x00,0x00,0x00,0x27,0x00,0x00,0x00,0x24,0x00,0x00,0x00,0x91,0x00,0x05,0x00,0x0d,0x00,0x00,0x00,
-	0x29,0x00,0x00,0x00,0x21,0x00,0x00,0x00,0x28,0x00,0x00,0x00,0x41,0x00,0x05,0x00,0x2a,0x00,0x00,0x00,0x2b,0x00,0x00,0x00,
-	0x10,0x00,0x00,0x00,0x12,0x00,0x00,0x00,0x3e,0x00,0x03,0x00,0x2b,0x00,0x00,0x00,0x29,0x00,0x00,0x00,0xfd,0x00,0x01,0x00,
-	0x38,0x00,0x01,0x00,
-};
