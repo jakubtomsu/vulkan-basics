@@ -16,11 +16,6 @@
 #pragma comment(lib, "glfw3dll.lib")
 #pragma comment(lib, "vulkan-1.lib")
 
-//#pragma warning(push)
-//#pragma warning(disable: 2664) // cast error
-//#pragma warning(disable: 2440)
-//#pragma warning(disable: 7560)
-
 
 #define WIDTH  720
 #define HEIGHT 480
@@ -31,25 +26,23 @@ const int frag_shader_spv_size = 500;
 extern unsigned char vert_shader_spv[];
 const int vert_shader_spv_size = 1372;
 
-int main(int argc, char **argv) {
-	/*
-		1) Initialise GLFW.
-		   GLFW handles OS-specific interfaces such as creating and accessing a window and gathering input.
-	*/
+int
+main(int argc, char **argv) {
+	// Initialise GLFW.
+	// GLFW handles OS-specific interfaces such as creating and accessing a window and gathering input.
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-	GLFWwindow *window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan Test", NULL, NULL);
+	GLFWwindow *window = glfwCreateWindow(WIDTH, HEIGHT, "vulkan-hello-triangle", NULL, NULL);
 	if (!window) {
 		fprintf(stderr, "Error creating a GLFW window\n");
 		return 1;
 	}
 
-	/*
-		2) Retrieves the names of the Vulkan *instance* extensions that are necessary.
-		   If NULL is returned, then Vulkan is not usable (likely not installed).
-	*/
+	
+	// Retrieves the names of the Vulkan *instance* extensions that are necessary.
+	// If NULL is returned, then Vulkan is not usable (likely not installed).
 	unsigned int n_inst_exts = 0;
 	const char **req_inst_exts = glfwGetRequiredInstanceExtensions(&n_inst_exts);
 	if (!req_inst_exts) {
@@ -57,11 +50,9 @@ int main(int argc, char **argv) {
 		return 2;
 	}
 
-	/*
-		3) Create a Vulkan Instance.
-		   We provide Vulkan information about our program and the extensions available on this system,
-		    and it returns a unique Vulkan instance
-	*/
+	// Create a Vulkan Instance.
+	// We provide Vulkan information about our program and the extensions available on this system,
+	// and it returns a unique Vulkan instance
 	VkApplicationInfo app_info = {0};
 	app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 	app_info.pApplicationName = "Hello Triangle";
@@ -83,10 +74,8 @@ int main(int argc, char **argv) {
 		return 3;
 	}
 
-	/*
-		4) Determine the list of graphics hardware devices in this computer.
-		   In this example we just select the first device on the list.
-	*/
+	// Determine the list of graphics hardware devices in this computer.
+	// In this example we just select the first device on the list.
 	int n_gpus = 0;
 	res = vkEnumeratePhysicalDevices(instance, &n_gpus, NULL);
 	if (n_gpus <= 0) {
@@ -102,10 +91,8 @@ int main(int argc, char **argv) {
 		return 4;
 	}
 
-	/*
-		5) Determine which queue family to use.
-		   In this case, we just look for the first one that can do graphics.
-	*/
+	// Determine which queue family to use.
+	// In this case, we just look for the first one that can do graphics.
 	int n_queues = 0;
 	vkGetPhysicalDeviceQueueFamilyProperties(gpu, &n_queues, NULL);
 	if (n_queues <= 0) {
@@ -130,17 +117,13 @@ int main(int argc, char **argv) {
 		return 5;
 	}
 
-	/*
-		6) Check that the chosen queue family supports presentation.
-	*/
+	// Check that the chosen queue family supports presentation.
 	if (!glfwGetPhysicalDevicePresentationSupport(instance, gpu, queue_index)) {
 		fprintf(stderr, "The selected queue family does not support present mode\n");
 		return 6;
 	}
 
-	/*
-		7) Get all Vulkan *device* extensions (as opposed to instance extensions)
-	*/
+	// 7) Get all Vulkan *device* extensions (as opposed to instance extensions)
 	unsigned int n_dev_exts = 0;
 	res = vkEnumerateDeviceExtensionProperties(gpu, NULL, &n_dev_exts, NULL);
 	if (n_dev_exts <= 0 || res != VK_SUCCESS) {
@@ -159,11 +142,9 @@ int main(int argc, char **argv) {
 	for (int i = 0; i < n_dev_exts; i++)
 		dev_exts[i] = &dev_ext_props[i].extensionName[0];
 
-	/*
-		8) Create a virtual device for Vulkan.
-		   We pass in information regarding the hardware features we want to use as well as the set of queues,
-		    which are essentially the interface between our program and the GPU.
-	*/
+	// Create a virtual device for Vulkan.
+	// We pass in information regarding the hardware features we want to use as well as the set of queues,
+	// which are essentially the interface between our program and the GPU.
 	float priority = 0.0f;
 	VkDeviceQueueCreateInfo queue_info = {0};
 	queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -185,10 +166,8 @@ int main(int argc, char **argv) {
 		return 8;
 	}
 
-	/*
-		9) Get implementation-specific function pointers.
-		   This lets us use parts of the Vulkan API that aren't generalised.
-	*/
+	// Get implementation-specific function pointers.
+	// This lets us use parts of the Vulkan API that aren't generalised.
 	const int total_fptrs = 7;
 	int tally = 0;
 
@@ -198,11 +177,11 @@ int main(int argc, char **argv) {
 	PFN_vkGetPhysicalDeviceSurfaceFormatsKHR GetPhysicalDeviceSurfaceFormatsKHR
 		= (PFN_vkGetPhysicalDeviceSurfaceFormatsKHR)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceFormatsKHR");
 
-	PFN_vkCreateSwapchainKHR CreateSwapchainKHR       = (PFN_vkCreateSwapchainKHR)vkGetDeviceProcAddr(device, "vkCreateSwapchainKHR");
-	PFN_vkDestroySwapchainKHR DestroySwapchainKHR     = (PFN_vkDestroySwapchainKHR)vkGetDeviceProcAddr(device, "vkDestroySwapchainKHR");
+	PFN_vkCreateSwapchainKHR CreateSwapchainKHR		  = (PFN_vkCreateSwapchainKHR)vkGetDeviceProcAddr(device, "vkCreateSwapchainKHR");
+	PFN_vkDestroySwapchainKHR DestroySwapchainKHR	  = (PFN_vkDestroySwapchainKHR)vkGetDeviceProcAddr(device, "vkDestroySwapchainKHR");
 	PFN_vkGetSwapchainImagesKHR GetSwapchainImagesKHR = (PFN_vkGetSwapchainImagesKHR)vkGetDeviceProcAddr(device, "vkGetSwapchainImagesKHR");
-	PFN_vkAcquireNextImageKHR AcquireNextImageKHR     = (PFN_vkAcquireNextImageKHR)vkGetDeviceProcAddr(device, "vkAcquireNextImageKHR");
-	PFN_vkQueuePresentKHR QueuePresentKHR             = (PFN_vkQueuePresentKHR)vkGetDeviceProcAddr(device, "vkQueuePresentKHR");
+	PFN_vkAcquireNextImageKHR AcquireNextImageKHR	  = (PFN_vkAcquireNextImageKHR)vkGetDeviceProcAddr(device, "vkAcquireNextImageKHR");
+	PFN_vkQueuePresentKHR QueuePresentKHR			  = (PFN_vkQueuePresentKHR)vkGetDeviceProcAddr(device, "vkQueuePresentKHR");
 
 	tally += GetPhysicalDeviceSurfaceCapabilitiesKHR != NULL;
 	tally += GetPhysicalDeviceSurfaceFormatsKHR != NULL;
@@ -217,20 +196,16 @@ int main(int argc, char **argv) {
 		return 9;
 	}
 
-	/*
-		10) Creating the window surface.
-		    In this example I use GLFW's equivalent API, which is platform-agnostic.
-	*/
+	// Creating the window surface.
+	// In this example I use GLFW's equivalent API, which is platform-agnostic.
 	VkSurfaceKHR surface;
 	res = glfwCreateWindowSurface(instance, window, NULL, &surface);
 	if (res != VK_SUCCESS) {
 		fprintf(stderr, "glfwCreateWindowSurface() failed (%d)\n", res);
 		return 10;
 	}
-
-	/*
-		11) Determine the color format.
-	*/
+	
+	// Determine the color format.
 	int n_color_formats = 0;
 	res = GetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &n_color_formats, NULL);
 	if (n_color_formats <= 0 || res != VK_SUCCESS) {
@@ -259,9 +234,7 @@ int main(int argc, char **argv) {
 		return 11;
 	}
 
-	/*
-		12) Get information about the OS-specific surface.
-	*/
+	// Get information about the OS-specific surface.
 	VkSurfaceCapabilitiesKHR surf_caps;
 	res = GetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &surf_caps);
 	if (res != VK_SUCCESS) {
@@ -275,11 +248,9 @@ int main(int argc, char **argv) {
 	}
 
 	// This would be where you might want to call vkGetPhysicalDeviceSurfacePresentModeKHR()
-	//  to use a non-Vsync presentation mode
+	//	to use a non-Vsync presentation mode
 
-	/*
-		13) Select the composite alpha format.
-	*/
+	// Select the composite alpha format.
 	VkCompositeAlphaFlagBitsKHR alpha_fmt = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 	VkCompositeAlphaFlagBitsKHR alpha_list[] = {
 		VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
@@ -295,11 +266,9 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	/*
-		14) Create a swapchain.
-		    This lets us maintain a rotating cast of framebuffers.
-		    In this example, we set it up for double-buffering.
-	*/
+	// Create a swapchain.
+	// This lets us maintain a rotating cast of framebuffers.
+	// In this example, we set it up for double-buffering.
 	int n_swap_images = surf_caps.minImageCount + 1;
 	if (surf_caps.maxImageCount > 0 && n_swap_images > surf_caps.maxImageCount)
 		n_swap_images = surf_caps.maxImageCount;
@@ -333,10 +302,8 @@ int main(int argc, char **argv) {
 		return 14;
 	}
 
-	/*
-		15) Get swapchain images.
-		    These are the endpoints for our framebuffers.
-	*/
+	// Get swapchain images.
+	// These are the endpoints for our framebuffers.
 	int n_images = 0;
 	res = GetSwapchainImagesKHR(device, swapchain, &n_images, NULL);
 	if (n_images <= 0 || res != VK_SUCCESS) {
@@ -350,10 +317,8 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "vkGetSwapchainImagesKHR() failed (%d)\n", res);
 		return 15;
 	}
-
-	/*
-		16) Create image views for the swapchain.
-	*/
+	
+	// Create image views for the swapchain.
 	VkImageViewCreateInfo iv_info = {0};
 	iv_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 	iv_info.pNext = NULL;
@@ -382,10 +347,8 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	/*
-		17) Create a command pool.
-		    A command pool is essentially a thread-specific block of memory that is used for allocating commands.
-	*/
+	// Create a command pool.
+	// A command pool is essentially a thread-specific block of memory that is used for allocating commands.
 	VkCommandPoolCreateInfo cpool_info = {0};
 	cpool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	cpool_info.queueFamilyIndex = queue_index;
@@ -398,9 +361,7 @@ int main(int argc, char **argv) {
 		return 17;
 	}
 
-	/*
-		18) Allocate command buffers - one for each image
-	*/
+	// Allocate command buffers - one for each image
 	VkCommandBufferAllocateInfo cbuf_alloc_info = {0};
 	cbuf_alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 	cbuf_alloc_info.commandPool = cmd_pool;
@@ -414,10 +375,8 @@ int main(int argc, char **argv) {
 		return 18;
 	}
 
-	/*
-		19) Select the depth format.
-		    Used in the creation of the depth stencil.
-	*/
+	// Select the depth format.
+	// Used in the creation of the depth stencil.
 	VkFormat formats[] = {
 		VK_FORMAT_D32_SFLOAT_S8_UINT,
 		VK_FORMAT_D32_SFLOAT,
@@ -441,17 +400,15 @@ int main(int argc, char **argv) {
 		return 19;
 	}
 
-	/*
-		20) Create depth stencil image.
-	*/
+	// Create depth stencil image.
 	VkImageCreateInfo dimg_info = {0};
 	dimg_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 	dimg_info.imageType = VK_IMAGE_TYPE_2D;
 	dimg_info.format = depth_fmt;
 	dimg_info.extent = (VkExtent3D){
-		.width  = surf_caps.currentExtent.width,
+		.width	= surf_caps.currentExtent.width,
 		.height = surf_caps.currentExtent.height,
-		.depth  = 1
+		.depth	= 1
 	};
 	dimg_info.mipLevels = 1;
 	dimg_info.arrayLayers = 1;
@@ -466,9 +423,7 @@ int main(int argc, char **argv) {
 		return 20;
 	}
 
-	/*
-		21) Allocate memory for the depth stencil.
-	*/
+	// Allocate memory for the depth stencil.
 	VkPhysicalDeviceMemoryProperties gpu_mem;
 	vkGetPhysicalDeviceMemoryProperties(gpu, &gpu_mem);
 
@@ -502,19 +457,15 @@ int main(int argc, char **argv) {
 		return 21;
 	}
 
-	/*
-		22) Bind the newly allocated memory to the depth stencil image.
-	*/
+	// Bind the newly allocated memory to the depth stencil image.
 	res = vkBindImageMemory(device, depth_img, depth_mem, 0);
 	if (res != VK_SUCCESS) {
 		fprintf(stderr, "vkBindImageMemory() for depth stencil failed (%d)\n", res);
 		return 22;
 	}
 
-	/*
-		23) Create depth stencil view.
-		    This is passed to each framebuffer.
-	*/
+	// Create depth stencil view.
+	// This is passed to each framebuffer.
 	VkImageAspectFlagBits aspect =
 		depth_fmt >= VK_FORMAT_D16_UNORM_S8_UINT ?
 		VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT :
@@ -538,32 +489,30 @@ int main(int argc, char **argv) {
 		return 23;
 	}
 
-	/*
-		24) Set up the render pass.
-	*/
+	// Set up the render pass.
 	VkAttachmentDescription attachments[] = {
 		{ // Color attachment
-			.flags          = 0,
-			.format         = color_fmt.format,
-			.samples        = VK_SAMPLE_COUNT_1_BIT,
-			.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
-			.storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
-			.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			.flags			= 0,
+			.format			= color_fmt.format,
+			.samples		= VK_SAMPLE_COUNT_1_BIT,
+			.loadOp			= VK_ATTACHMENT_LOAD_OP_CLEAR,
+			.storeOp		= VK_ATTACHMENT_STORE_OP_STORE,
+			.stencilLoadOp	= VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-			.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
-			.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+			.initialLayout	= VK_IMAGE_LAYOUT_UNDEFINED,
+			.finalLayout	= VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
 		},
 		{ // Depth attachment
-			.flags          = 0,
-			.format         = depth_fmt,
-			.samples        = VK_SAMPLE_COUNT_1_BIT,
-			.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
-			.storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
-			.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR,
+			.flags			= 0,
+			.format			= depth_fmt,
+			.samples		= VK_SAMPLE_COUNT_1_BIT,
+			.loadOp			= VK_ATTACHMENT_LOAD_OP_CLEAR,
+			.storeOp		= VK_ATTACHMENT_STORE_OP_STORE,
+			.stencilLoadOp	= VK_ATTACHMENT_LOAD_OP_CLEAR,
 			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-			.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
-			.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-		}
+			.initialLayout	= VK_IMAGE_LAYOUT_UNDEFINED,
+			.finalLayout	= VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+		},
 	};
 
 	VkAttachmentReference color_ref = {0};
@@ -582,21 +531,21 @@ int main(int argc, char **argv) {
 
 	VkSubpassDependency dependencies[] = {
 		{
-			.srcSubpass      = VK_SUBPASS_EXTERNAL,
-			.dstSubpass      = 0,
-			.srcStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-			.dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-			.srcAccessMask   = VK_ACCESS_MEMORY_READ_BIT,
-			.dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+			.srcSubpass		 = VK_SUBPASS_EXTERNAL,
+			.dstSubpass		 = 0,
+			.srcStageMask	 = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+			.dstStageMask	 = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.srcAccessMask	 = VK_ACCESS_MEMORY_READ_BIT,
+			.dstAccessMask	 = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 			.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT
 		},
 		{
-			.srcSubpass      = 0,
-			.dstSubpass      = VK_SUBPASS_EXTERNAL,
-			.srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-			.dstStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-			.srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-			.dstAccessMask   = VK_ACCESS_MEMORY_READ_BIT,
+			.srcSubpass		 = 0,
+			.dstSubpass		 = VK_SUBPASS_EXTERNAL,
+			.srcStageMask	 = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.dstStageMask	 = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+			.srcAccessMask	 = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+			.dstAccessMask	 = VK_ACCESS_MEMORY_READ_BIT,
 			.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT
 		}
 	};
@@ -617,9 +566,7 @@ int main(int argc, char **argv) {
 		return 24;
 	}
 
-	/*
-		25) Create the frame buffers.
-	*/
+	// Create the frame buffers.
 	VkImageView fb_views[2];
 	fb_views[1] = depth_view;
 
@@ -642,23 +589,19 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	/*
-		26) Create semaphores for synchronising draw commands and image presentation.
-	*/
+	// Create semaphores for synchronising draw commands and image presentation.
 	VkSemaphoreCreateInfo bake_sema = {0};
 	bake_sema.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
 	VkSemaphore sema_present, sema_render;
 	if (vkCreateSemaphore(device, &bake_sema, NULL, &sema_present) != VK_SUCCESS ||
-	    vkCreateSemaphore(device, &bake_sema, NULL, &sema_render) != VK_SUCCESS)
+		vkCreateSemaphore(device, &bake_sema, NULL, &sema_render) != VK_SUCCESS)
 	{
 		fprintf(stderr, "Failed to create Vulkan semaphores\n");
 		return 26;
 	}
 
-	/*
-		27) Create wait fences - one for each image.
-	*/
+	// Create wait fences - one for each image.
 	VkFenceCreateInfo fence_info = {0};
 	fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 	fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -672,34 +615,32 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	/*
-		28) Prepare the triangle!
-		    Note: don't write code like this. Modularising code into functions is usually better than making loops with ad-hoc data structures.
-			 This code was explicitly written this way for demonstration purposes.
-	*/
+	// Prepare the triangle!
+	// Note: don't write code like this. Modularising code into functions is usually better than making loops with ad-hoc data structures.
+	// This code was explicitly written this way for demonstration purposes.
 	float vertices[] = {
-		// Position           Color
-		 1.0f,  1.0f,  0.0f,  1.0f,  0.0f,  0.0f,
-		-1.0f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
-		 0.0f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f
+		// Position			  Color
+		 1.0f,	1.0f,  0.0f,  1.0f,	 0.0f,	0.0f,
+		-1.0f,	1.0f,  0.0f,  0.0f,	 1.0f,	0.0f,
+		 0.0f, -1.0f,  0.0f,  0.0f,	 0.0f,	1.0f
 	};
 	int indices[] = {0, 1, 2};
 	float mvp[] = {
 		// Projection Matrix (60deg FOV, 3:2 aspect ratio, [1.0, 256.0] clipping plane range)
-		1.155,  0.000,  0.000,  0.000,
-		0.000,  1.732,  0.000,  0.000,
-		0.000,  0.000, -1.008, -1.000,
-		0.000,  0.000, -2.008,  0.000,
+		1.155,	0.000,	0.000,	0.000,
+		0.000,	1.732,	0.000,	0.000,
+		0.000,	0.000, -1.008, -1.000,
+		0.000,	0.000, -2.008,	0.000,
 		// Model Matrix (identity)
 		1.0f, 0.0f, 0.0f, 0.0f,
 		0.0f, 1.0f, 0.0f, 0.0f,
 		0.0f, 0.0f, 1.0f, 0.0f,
 		0.0f, 0.0f, 0.0f, 1.0f,
 		// View Matrix (distance of 2.5)
-		1.0f,  0.0f,  0.0f,  0.0f,
-		0.0f,  1.0f,  0.0f,  0.0f,
-		0.0f,  0.0f,  1.0f,  0.0f,
-		0.0f,  0.0f, -2.5f,  1.0f
+		1.0f,  0.0f,  0.0f,	 0.0f,
+		0.0f,  1.0f,  0.0f,	 0.0f,
+		0.0f,  0.0f,  1.0f,	 0.0f,
+		0.0f,  0.0f, -2.5f,	 1.0f
 	};
 
 	struct {
@@ -710,8 +651,8 @@ int main(int argc, char **argv) {
 		VkBuffer buffer;
 	} data[] = {
 		{(void*)vertices, 18 * sizeof(float), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,  VK_NULL_HANDLE, VK_NULL_HANDLE},
-		{(void*)indices,   3 * sizeof(int),   VK_BUFFER_USAGE_INDEX_BUFFER_BIT,   VK_NULL_HANDLE, VK_NULL_HANDLE},
-		{(void*)mvp,      48 * sizeof(float), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_NULL_HANDLE, VK_NULL_HANDLE}
+		{(void*)indices,   3 * sizeof(int),	  VK_BUFFER_USAGE_INDEX_BUFFER_BIT,	  VK_NULL_HANDLE, VK_NULL_HANDLE},
+		{(void*)mvp,	  48 * sizeof(float), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_NULL_HANDLE, VK_NULL_HANDLE}
 	};
 
 	for (int i = 0; i < 3; i++) {
@@ -772,17 +713,13 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	/*
-		29) Describe the MVP to a uniform descriptor.
-	*/
+	// Describe the MVP to a uniform descriptor.
 	VkDescriptorBufferInfo uniform_info = {0};
 	uniform_info.buffer = data[2].buffer;
 	uniform_info.offset = 0;
 	uniform_info.range = data[2].size;
 
-	/*
-		30) Create descriptor set layout.
-	*/
+	// Create descriptor set layout.
 	VkDescriptorSetLayoutBinding ds_bind = {0};
 	ds_bind.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	ds_bind.descriptorCount = 1;
@@ -800,9 +737,7 @@ int main(int argc, char **argv) {
 		return 30;
 	}
 
-	/*
-		31) Create pipeline layout.
-	*/
+	// Create pipeline layout.
 	VkPipelineLayoutCreateInfo pl_info = {0};
 	pl_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	pl_info.setLayoutCount = 1;
@@ -815,9 +750,7 @@ int main(int argc, char **argv) {
 		return 31;
 	}
 
-	/*
-		32) Prepare shaders.
-	*/
+	// Prepare shaders.
 	VkShaderModuleCreateInfo mod_info = {0};
 	mod_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 	mod_info.codeSize = frag_shader_spv_size;
@@ -840,9 +773,7 @@ int main(int argc, char **argv) {
 		return 32;
 	}
 
-	/*
-		33) Create graphics pipeline.
-	*/
+	// Create graphics pipeline.
 	VkPipelineInputAssemblyStateCreateInfo asm_info = {0};
 	asm_info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
 	asm_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -899,14 +830,14 @@ int main(int argc, char **argv) {
 		{ // Position
 			.binding  = 0,
 			.location = 0,
-			.format   = VK_FORMAT_R32G32B32_SFLOAT,
-			.offset   = 0
+			.format	  = VK_FORMAT_R32G32B32_SFLOAT,
+			.offset	  = 0
 		},
 		{ // Color
 			.binding  = 0,
 			.location = 1,
-			.format   = VK_FORMAT_R32G32B32_SFLOAT,
-			.offset   = 3 * sizeof(float)
+			.format	  = VK_FORMAT_R32G32B32_SFLOAT,
+			.offset	  = 3 * sizeof(float)
 		}
 	};
 
@@ -919,16 +850,16 @@ int main(int argc, char **argv) {
 
 	VkPipelineShaderStageCreateInfo shader_stages[] = {
 		{
-			.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-			.stage  = VK_SHADER_STAGE_VERTEX_BIT,
+			.sType	= VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.stage	= VK_SHADER_STAGE_VERTEX_BIT,
 			.module = vert_shader,
-			.pName  = "main"
+			.pName	= "main"
 		},
 		{
-			.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-			.stage  = VK_SHADER_STAGE_FRAGMENT_BIT,
+			.sType	= VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.stage	= VK_SHADER_STAGE_FRAGMENT_BIT,
 			.module = frag_shader,
-			.pName  = "main"
+			.pName	= "main"
 		}
 	};
 
@@ -954,15 +885,11 @@ int main(int argc, char **argv) {
 		return 33;
 	}
 
-	/*
-		34) Destroy shader modules (now that they have already been incorporated into the pipeline).
-	*/
+	// Destroy shader modules (now that they have already been incorporated into the pipeline).
 	vkDestroyShaderModule(device, vert_shader, NULL);
 	vkDestroyShaderModule(device, frag_shader, NULL);
 
-	/*
-		35) Create a descriptor pool for our descriptor set.
-	*/
+	// Create a descriptor pool for our descriptor set.
 	VkDescriptorPoolSize ps_info = {0};
 	ps_info.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	ps_info.descriptorCount = 1;
@@ -980,10 +907,8 @@ int main(int argc, char **argv) {
 		return 35;
 	}
 
-	/*
-		36) Allocate a descriptor set.
-		    Descriptor sets let us pass additional data into our shaders.
-	*/
+	// Allocate a descriptor set.
+	// Descriptor sets let us pass additional data into our shaders.
 	VkDescriptorSetAllocateInfo ds_alloc_info = {0};
 	ds_alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 	ds_alloc_info.descriptorPool = dpool;
@@ -997,9 +922,7 @@ int main(int argc, char **argv) {
 		return 36;
 	}
 
-	/*
-		37) Set up the descriptor set.
-	*/
+	// Set up the descriptor set.
 	VkWriteDescriptorSet write_info = {0};
 	write_info.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	write_info.dstSet = desc_set;
@@ -1010,19 +933,14 @@ int main(int argc, char **argv) {
 
 	vkUpdateDescriptorSets(device, 1, &write_info, 0, NULL);
 
-	/*
-		38) Construct the command buffers.
-		    This is where we place the draw commands, which are executed by the GPU later.
-	*/
+	// Construct the command buffers.
+	// This is where we place the draw commands, which are executed by the GPU later.
 	VkCommandBufferBeginInfo cbuf_info = {0};
 	cbuf_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
 	VkClearValue clear_values[] = {
-		{
-			.color = { { 0.0f, 0.0f, 0.2f, 1.0f } }
-		}, {
-			.depthStencil = { 1.0f, 0 }
-		}
+		{.color = {{0.0f, 0.0f, 0.2f, 1.0f}}},
+		{.depthStencil = {1.0f, 0}},
 	};
 
 	VkRenderPassBeginInfo rp_info = {0};
@@ -1073,9 +991,7 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	/*
-		39) Prepare main loop.
-	*/
+	// Prepare main loop.
 	VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
 	VkSubmitInfo submit_info = {0};
@@ -1097,9 +1013,7 @@ int main(int argc, char **argv) {
 	VkQueue queue;
 	vkGetDeviceQueue(device, queue_index, 0, &queue);
 
-	/*
-		40) Main loop.
-	*/
+	// Main loop.
 	unsigned long long max64 = -1;
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
@@ -1138,9 +1052,7 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	/*
-		41) Clean-up.
-	*/
+	// Clean-up.
 	for (int i = 0; i < 3; i++) {
 		vkDestroyBuffer(device, data[i].buffer, NULL);
 		vkFreeMemory(device, data[i].memory, NULL);
@@ -1153,12 +1065,14 @@ int main(int argc, char **argv) {
 	vkDestroySemaphore(device, sema_present, NULL);
 	vkDestroySemaphore(device, sema_render, NULL);
 
-	for (int i = 0; i < n_images; i++)
+	for (int i = 0; i < n_images; i++) {
 		vkDestroyFence(device, fences[i], NULL);
+	}
 	free(fences);
 
-	for (int i = 0; i < n_images; i++)
+	for (int i = 0; i < n_images; i++) {
 		vkDestroyFramebuffer(device, fbuffers[i], NULL);
+	}
 	free(fbuffers);
 
 	//vkFreeCommandBuffers(device, cmd_pool, n_images, cmd_buffers);
@@ -1172,8 +1086,9 @@ int main(int argc, char **argv) {
 	vkDestroyPipeline(device, pipeline, NULL);
 	vkDestroyRenderPass(device, renderpass, NULL);
 
-	for (int i = 0; i < n_images; i++)
+	for (int i = 0; i < n_images; i++) {
 		vkDestroyImageView(device, img_views[i], NULL);
+	}
 	free(img_views);
 
 	free(images);
@@ -1184,7 +1099,7 @@ int main(int argc, char **argv) {
 	vkDestroySurfaceKHR(instance, surface, NULL);
 	vkDestroyInstance(instance, NULL);
 
-	// free(dev_exts); // TODO
+	free((void*)dev_exts); // TODO
 	free(dev_ext_props);
 
 	glfwDestroyWindow(window);
@@ -1248,7 +1163,7 @@ layout (location = 0) out vec3 outColor;
 
 out gl_PerVertex 
 {
-	vec4 gl_Position;   
+	vec4 gl_Position;	
 };
 
 
